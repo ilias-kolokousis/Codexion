@@ -13,44 +13,68 @@
 #ifndef CODEXION_H
 # define CODEXION_H
 
-# include <limits.h>
+# include <pthread.h>
 # include <stdio.h>
 # include <stdlib.h>
-# include <pthread.h>
+# include <string.h>
 # include <sys/time.h>
 # include <unistd.h>
-# include <string.h>
+
+/*
+** Each dongle sits between exactly two coders, so its request queue never
+** holds more than two entries.
+*/
+# define QUEUE_CAPACITY 2
+
+/* Granularity (in microseconds) of every polling loop in the simulation. */
+# define POLL_US 500
 
 typedef struct s_data	t_data;
 typedef struct s_coder	t_coder;
-typedef struct s_heap	t_heap;
+typedef struct s_queue	t_queue;
 typedef struct s_item	t_item;
 typedef struct s_dongle	t_dongle;
 
-typedef enum e_scheduler {
+typedef enum e_scheduler
+{
 	FIFO_SCHED,
 	EDF_SCHED
 }	t_scheduler;
 
-struct	s_item {
+struct s_item
+{
 	int		id;
 	long	key;
 };
 
-struct s_heap {
-	t_item	items[2];
+/* Tiny priority queue: items[0] is always the request with the lowest key. */
+struct s_queue
+{
+	t_item	items[QUEUE_CAPACITY];
 	int		size;
 };
 
-struct s_dongle {
-	pthread_mutex_t	state_mtx;
-	pthread_cond_t	state_cond;
+struct s_dongle
+{
+	pthread_mutex_t	mtx;
+	pthread_cond_t	cond;
 	int				available;
-	t_heap			heap;
 	long			released_at;
+	t_queue			queue;
 };
 
-struct s_data {
+struct s_coder
+{
+	int				id;
+	long			last_compile_start;
+	int				compile_count;
+	t_data			*data;
+	pthread_mutex_t	mtx;
+	pthread_t		thread;
+};
+
+struct s_data
+{
 	long			n_coders;
 	long			burnout_time;
 	long			compile_time;
@@ -62,50 +86,43 @@ struct s_data {
 	int				sim_running;
 	long			start_time;
 	t_coder			*coders;
+	t_dongle		*dongles;
 	pthread_mutex_t	sim_mtx;
 	pthread_mutex_t	print_mtx;
-	t_dongle		*dongles;
 	pthread_t		monitor;
 };
 
-struct s_coder {
-	int				id;
-	long			last_compile_start;
-	int				compile_count;
-	t_data			*data;
-	pthread_mutex_t	state_mtx;
-	pthread_t		thread;
-};
+/* init.c */
+int		init_simulation(t_data *data);
+void	destroy_coders(t_data *data, int count);
+void	destroy_dongles(t_data *data, int count);
 
-/* codexion.c */
-void	start_codexion(t_data *data);
-void	destroy_n_free(t_data *data);
-void	*coder_thread(void *data);
+/* simulation.c */
+int		run_simulation(t_data *data);
+void	cleanup_simulation(t_data *data);
 
-/* dongles_init.c */
-void	*dongles_init(t_data *codexion);
-void	*destroy(t_data *codexion, int size);
+/* coder.c */
+void	*coder_routine(void *arg);
 
-/* compile.c */
-void	compile(t_coder *coder, int first, int second);
+/* dongle.c */
+int		acquire_dongle(t_coder *coder, int index);
+void	release_dongle(t_data *data, int index);
 
-/* helpers.c */
-void	debug_n_refactor(t_coder *coder);
-void	start_coder_threads(t_data *data);
+/* scheduler.c */
+long	priority_key(t_coder *coder);
+void	queue_push(t_queue *queue, int id, long key);
+t_item	queue_peek(t_queue *queue);
+void	queue_pop(t_queue *queue);
 
 /* monitor.c */
-void	*monitor(void *data);
-
-/* heap_ops.c */
-void	push(t_heap *heap, int id, long key);
-t_item	peek_top(t_heap *heap);
-t_item	pop(t_heap *heap);
-long	priority_key(t_coder *coder);
+void	*monitor_routine(void *arg);
+void	stop_simulation(t_data *data, int id, char *msg);
 
 /* utils.c */
 long	get_time_ms(void);
 void	deadline_in_us(struct timespec *ts, long us);
-void	safe_print(t_data *data, int id, char *msg);
+void	log_state(t_data *data, int id, char *msg);
 int		is_running(t_data *data);
+void	sleep_ms(t_data *data, long ms);
 
 #endif
