@@ -20,6 +20,7 @@ long	get_time_ms(void)
 	return (((long)tv.tv_sec * 1000) + (tv.tv_usec / 1000));
 }
 
+/* Absolute deadline `us` microseconds from now, for pthread_cond_timedwait. */
 void	deadline_in_us(struct timespec *ts, long us)
 {
 	struct timeval	tv;
@@ -29,13 +30,12 @@ void	deadline_in_us(struct timespec *ts, long us)
 	ts->tv_nsec = ((tv.tv_usec + us) % 1000000) * 1000;
 }
 
-void	safe_print(t_data *data, int id, char *msg)
+/* Prints a coder's state change, unless the simulation already ended. */
+void	log_state(t_data *data, int id, char *msg)
 {
 	pthread_mutex_lock(&data->print_mtx);
-	if (id == 0)
-		printf("%li %s\n", get_time_ms() - data->start_time, msg);
-	else
-		printf("%li %i %s\n", get_time_ms() - data->start_time, id, msg);
+	if (is_running(data))
+		printf("%ld %d %s\n", get_time_ms() - data->start_time, id, msg);
 	pthread_mutex_unlock(&data->print_mtx);
 }
 
@@ -47,4 +47,14 @@ int	is_running(t_data *data)
 	running = data->sim_running;
 	pthread_mutex_unlock(&data->sim_mtx);
 	return (running);
+}
+
+/* Sleeps for `ms` milliseconds, waking early if the simulation stops. */
+void	sleep_ms(t_data *data, long ms)
+{
+	long	end;
+
+	end = get_time_ms() + ms;
+	while (is_running(data) && get_time_ms() < end)
+		usleep(POLL_US);
 }

@@ -1,7 +1,7 @@
 /* ************************************************************************** */
 /*                                                                            */
 /*                                                        :::      ::::::::   */
-/*   heap_ops.c                                         :+:      :+:    :+:   */
+/*   scheduler.c                                        :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
 /*   By: ikolokou <ikolokou@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
@@ -12,53 +12,56 @@
 
 #include "codexion.h"
 
+/*
+** FIFO: requests are served in arrival order.
+** EDF: the coder closest to burning out is served first.
+*/
 long	priority_key(t_coder *coder)
 {
-	long	edf_time;
+	long	deadline;
 
-	pthread_mutex_lock(&coder->state_mtx);
-	edf_time = coder->last_compile_start + coder->data->burnout_time;
-	pthread_mutex_unlock(&coder->state_mtx);
 	if (coder->data->scheduler == FIFO_SCHED)
 		return (get_time_ms());
-	else
-		return (edf_time);
+	pthread_mutex_lock(&coder->mtx);
+	deadline = coder->last_compile_start + coder->data->burnout_time;
+	pthread_mutex_unlock(&coder->mtx);
+	return (deadline);
 }
 
-void	push(t_heap *heap, int id, long key)
+/* On equal keys the earlier request stays in front. */
+void	queue_push(t_queue *queue, int id, long key)
 {
 	t_item	tmp;
 
-	heap->items[heap->size].id = id;
-	heap->items[heap->size].key = key;
-	heap->size++;
-	if (heap->size == 2 && heap->items[0].key > heap->items[1].key)
+	if (queue->size >= QUEUE_CAPACITY)
+		return ;
+	queue->items[queue->size].id = id;
+	queue->items[queue->size].key = key;
+	queue->size++;
+	if (queue->size == 2 && queue->items[0].key > queue->items[1].key)
 	{
-		tmp = heap->items[0];
-		heap->items[0] = heap->items[1];
-		heap->items[1] = tmp;
+		tmp = queue->items[0];
+		queue->items[0] = queue->items[1];
+		queue->items[1] = tmp;
 	}
 }
 
-t_item	peek_top(t_heap *heap)
+t_item	queue_peek(t_queue *queue)
 {
-	return (heap->items[0]);
+	return (queue->items[0]);
 }
 
-t_item	pop(t_heap *heap)
+void	queue_pop(t_queue *queue)
 {
-	int		i;
-	t_item	smallest_key;
+	int	i;
 
-	smallest_key = heap->items[0];
+	if (queue->size == 0)
+		return ;
 	i = 0;
-	while (i < heap->size - 1)
+	while (i < queue->size - 1)
 	{
-		heap->items[i] = heap->items[i + 1];
+		queue->items[i] = queue->items[i + 1];
 		i++;
 	}
-	heap->items[heap->size - 1].id = 0;
-	heap->items[heap->size - 1].key = 0;
-	heap->size--;
-	return (smallest_key);
+	queue->size--;
 }
